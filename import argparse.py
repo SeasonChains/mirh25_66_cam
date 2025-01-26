@@ -67,17 +67,31 @@ def detect_smile(image):
     """
     Detect smiles in the image using Haar cascades.
     """
-    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # Convert to grayscale for processing
-    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(50, 50))
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)  # Convert to grayscale
+    if gray is None or gray.size == 0:
+        print("Error: Input image is empty or invalid!")
+        return 0
+
+    # Check if face cascade is loaded
+    if face_cascade.empty():
+        print("Error: Face cascade not loaded!")
+        return 0
+
+    faces = face_cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30))
+    if len(faces) == 0:
+        print("No faces detected.")
+        return 0
 
     for (x, y, w, h) in faces:
-        # Focus on the lower half of the face for smile detection
-        roi_gray = gray[y + int(h * 0.7):y + h, x:x + w]
-        smiles = smile_cascade.detectMultiScale(roi_gray, scaleFactor=1.8, minNeighbors=20, minSize=(25, 25))
+        roi_gray = gray[y:y + h, x:x + w]  # Crop face region
+        smiles = smile_cascade.detectMultiScale(roi_gray, scaleFactor=1.7, minNeighbors=22, minSize=(25, 25))
         if len(smiles) > 0:
+            cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 0), 2)  # Annotate face
+            #cv2.putText(image, "Smiling!", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             return 1  # Smiling detected
 
     return 0  # No smile detected
+
 
 
 def calculate_tension(smiling, keypoints):
@@ -174,4 +188,4 @@ if __name__ == "__main__":
     picam2.pre_callback = picamera2_pre_callback
 
     while True:
-        time.sleep(10)
+        time.sleep(20)
