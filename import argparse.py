@@ -9,30 +9,25 @@ from picamera2 import CompletedRequest, MappedArray, Picamera2
 from picamera2.devices.imx500 import IMX500, NetworkIntrinsics
 from picamera2.devices.imx500.postprocess import COCODrawer
 from picamera2.devices.imx500.postprocess_highernet import postprocess_higherhrnet
-from io import BytesIO
-from PIL import Image
 from datetime import datetime
-import os
 
 # UDP setup
 UDP_IP = "127.0.0.1"  # Unity's IP address
 UDP_PORT = 5005       # Unity's UDP port
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
+# Haar Cascade models for face and smile detection
+face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_smile.xml")
 
-LOCAL_DIR = "/home/raspberry/services/PoC2/pi/tensed_data"
+# Global Variables
 last_boxes = None
 last_scores = None
 last_keypoints = None
 WINDOW_SIZE_H_W = (480, 640)
 
-# Haar Cascade models for face and smile detection
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_smile.xml")
-
-
 def ai_output_tensor_parse(metadata: dict):
-    """Parse the output tensor into a number of detected objects, scaled to the ISP output."""
+    """Parse the output tensor into detected objects scaled to the ISP output."""
     global last_boxes, last_scores, last_keypoints
     np_outputs = imx500.get_outputs(metadata=metadata, add_batch=True)
     if np_outputs is not None:
@@ -63,9 +58,9 @@ def ai_output_tensor_draw(request: CompletedRequest, boxes, scores, keypoints, s
         # Perform smile detection
         smiling = detect_smile(m.array)
 
-        # Analyze tension and save/send data
-        tensed = analyze_tension(keypoints)
-        save_and_send_snapshot(m.array, tensed, smiling)
+        # Analyze tension and send data
+        tension = calculate_tension(smiling, keypoints)
+        send_tension_data(tension)
 
 
 def detect_smile(image):
@@ -80,19 +75,27 @@ def detect_smile(image):
         roi_gray = gray[y + int(h * 0.7):y + h, x:x + w]
         smiles = smile_cascade.detectMultiScale(roi_gray, scaleFactor=1.8, minNeighbors=20, minSize=(25, 25))
         if len(smiles) > 0:
-            cv2.rectangle(image, (x, y), (x + w, y + h), (255, 0, 0), 2)  # Annotate face
-            cv2.putText(image, "Smiling!", (x, y - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
             return 1  # Smiling detected
 
     return 0  # No smile detected
 
 
-def analyze_tension(keypoints):
+def calculate_tension(smiling, keypoints):
     """
-    Analyze if a person is tense based on keypoints.
+    Calculate tension value based on smiling and body keypoints.
+    """
+    body_tension = analyze_body_tension(keypoints)
+    # Tension is higher when there is no smile and body appears tense.
+    tension = (1 - smiling) * 0.6 + body_tension * 0.4
+    return round(min(max(tension, 0.0), 1.0), 2)  # Normalize and round tension value
+
+
+def analyze_body_tension(keypoints):
+    """
+    Analyze body tension based on keypoints.
     """
     if keypoints is None or len(keypoints) == 0:
-        return 0  # No person detected, assume not tense.
+        return 0.0  # No person detected, assume relaxed.
 
     for person_keypoints in keypoints:
         # Extract keypoints (example: OpenPose format keypoints)
@@ -106,34 +109,22 @@ def analyze_tension(keypoints):
         if left_hand[2] > 0.5 and nose[2] > 0.5:  # Visibility check
             hand_to_face_distance = np.linalg.norm(np.array(left_hand[:2]) - np.array(nose[:2]))
             if hand_to_face_distance < 50:  # Arbitrary threshold
-                return 1  # Tensed
+                return 1.0  # High tension
 
         if right_hand[2] > 0.5 and nose[2] > 0.5:  # Visibility check
             hand_to_face_distance = np.linalg.norm(np.array(right_hand[:2]) - np.array(nose[:2]))
             if hand_to_face_distance < 50:  # Arbitrary threshold
-                return 1  # Tensed
+                return 1.0  # High tension
 
-    return 0  # Not tensed
+    return 0.0  # Low tension
 
 
-def save_and_send_snapshot(image, tensed):
-    """Save image locally and send tension data via UDP."""
-    # Generate a unique filename using the current timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    image_filename = os.path.join(LOCAL_DIR, f"{timestamp}_image.jpg")
-    data_filename = os.path.join(LOCAL_DIR, f"{timestamp}_data.json")
-
-    # Prepare data to send via UDP
+def send_tension_data(tension):
+    """Send tension value via UDP."""
     udp_data = {
-        "tensed": tensed,
-        "image_path": image_filename
+        "tension": tension,
     }
-    
-    # Save image locally as a JPEG
-    cv2.imwrite(image_filename, image)
-    with open(data_filename , 'w') as f:
-        json.dump(udp_data, f)
-    udp_socket.sendto(str(udp_data).encode(), (UDP_IP, UDP_PORT))
+    udp_socket.sendto(json.dumps(udp_data).encode(), (UDP_IP, UDP_PORT))
 
 
 def picamera2_pre_callback(request: CompletedRequest):
@@ -165,30 +156,9 @@ def get_drawer():
 if __name__ == "__main__":
     args = get_args()
 
-    # This must be called before instantiation of Picamera2
+    # Initialize IMX500 and Picamera2
     imx500 = IMX500(args.model)
-    intrinsics = imx500.network_intrinsics
-    if not intrinsics:
-        intrinsics = NetworkIntrinsics()
-        intrinsics.task = "pose estimation"
-    elif intrinsics.task != "pose estimation":
-        print("Network is not a pose estimation task", file=sys.stderr)
-        exit()
-
-    # Override intrinsics from args
-    for key, value in vars(args).items():
-        if key == 'labels' and value is not None:
-            with open(value, 'r') as f:
-                intrinsics.labels = f.read().splitlines()
-        elif hasattr(intrinsics, key) and value is not None:
-            setattr(intrinsics, key, value)
-
-    # Defaults
-    if intrinsics.inference_rate is None:
-        intrinsics.inference_rate = 10
-    if intrinsics.labels is None:
-        with open("assets/coco_labels.txt", "r") as f:
-            intrinsics.labels = f.read().splitlines()
+    intrinsics = imx500.network_intrinsics or NetworkIntrinsics()
     intrinsics.update_with_defaults()
 
     if args.print_intrinsics:
@@ -196,11 +166,9 @@ if __name__ == "__main__":
         exit()
 
     drawer = get_drawer()
-
     picam2 = Picamera2(imx500.camera_num)
     config = picam2.create_preview_configuration(controls={'FrameRate': intrinsics.inference_rate}, buffer_count=12)
 
-    imx500.show_network_fw_progress_bar()
     picam2.start(config, show_preview=True)
     imx500.set_auto_aspect_ratio()
     picam2.pre_callback = picamera2_pre_callback
