@@ -5,11 +5,13 @@ import socket
 import numpy as np
 import cv2
 import json
+import random
 from picamera2 import CompletedRequest, MappedArray, Picamera2
 from picamera2.devices.imx500 import IMX500, NetworkIntrinsics
 from picamera2.devices.imx500.postprocess import COCODrawer
 from picamera2.devices.imx500.postprocess_highernet import postprocess_higherhrnet
 from datetime import datetime
+
 
 # UDP setup
 UDP_IP = "10.29.205.94"  # Unity's IP address
@@ -102,6 +104,19 @@ def calculate_tension(smiling, keypoints):
     # Tension is higher when there is no smile and body appears tense.
     tension = (1 - smiling) * 0.6 + body_tension * 0.4
     return round(min(max(tension, 0.0), 1.0), 2)  # Normalize and round tension value
+
+
+## Debugging UDP communication
+"""
+def calculate_tension(smiling, keypoints):
+    # If smiling or no movement, tension is low
+    if smiling == 0:
+        # Return a random tension value between 0.0 and 1.0
+        return round(random.uniform(0.0, 1.0), 2)
+
+    # If smiling or no movement, tension is low
+    return round(random.uniform(0.0, 1.0), 2)  # Return random tension value between 0.0 and 1.0
+"""
 
 
 def analyze_body_tension(keypoints):
