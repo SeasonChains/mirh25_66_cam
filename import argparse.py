@@ -17,8 +17,8 @@ UDP_PORT = 9876      # Unity's UDP port
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # Haar Cascade models for face and smile detection
-face_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-smile_cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_smile.xml")
+face_cascade = cv2.CascadeClassifier("./haarcascades/haarcascade_frontalface_default.xml")
+smile_cascade = cv2.CascadeClassifier("./haarcascades/haarcascade_smile.xml")
 
 # Global Variables
 last_boxes = None
