@@ -57,7 +57,7 @@ The script sends the calculated tension value via UDP to a specified IP address 
     "tension": 0.75
   }
 
-### 3. Real-time Image and Data Processing:
+## Real-time Image and Data Processing:
 The script captures images, performs pose estimation, detects faces, and calculates the tension value in real-time. The detected data is sent continuously while the camera is capturing frames.
 
 
