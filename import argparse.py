@@ -12,8 +12,8 @@ from picamera2.devices.imx500.postprocess_highernet import postprocess_higherhrn
 from datetime import datetime
 
 # UDP setup
-UDP_IP = "127.0.0.1"  # Unity's IP address
-UDP_PORT = 5005       # Unity's UDP port
+UDP_IP = "10.29.205.94"  # Unity's IP address
+UDP_PORT = 9876      # Unity's UDP port
 udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 
 # Haar Cascade models for face and smile detection
